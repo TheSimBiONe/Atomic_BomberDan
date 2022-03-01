@@ -28,7 +28,14 @@ class Wall(pygame.sprite.Sprite):
 class Brick(pygame.sprite.Sprite):
     def __init__(self, x, y):
         super().__init__(all_sprites, bricks)
+
+        # destroy animation
         self.sheet = self.cut_sheet(pygame.transform.scale(load_image('Brick.png'), (112 * 5, 16 * 5)), 7, 1)
+        self.counter = 0
+        self.cur_frame = 0
+        self.destroyed = False
+
+        # parameters
         self.rect.x = x * 80
         self.rect.y = y * 80
         self.image = self.sheet[0]
@@ -45,7 +52,18 @@ class Brick(pygame.sprite.Sprite):
         return group
 
     def destroy(self):
-        pass
+        self.destroyed = True
+        self.cur_frame += 1
+
+    def update(self):
+        if self.destroyed:
+            if self.cur_frame == 7:
+                self.rect = pygame.Rect(0, 0, 0, 0)
+                self.kill()
+            elif self.counter % 5 == 0:
+                self.image = self.sheet[self.cur_frame]
+                self.cur_frame += 1
+            self.counter += 1
 
 
 class GameField:
@@ -59,7 +77,7 @@ class GameField:
         self.height = 11
         self.board = [[0] * width for _ in range(height)]
         self.cell_size = 80
-        with open('data/test', 'r') as rs:
+        with open('data/RoomSheet', 'r') as rs:
             room = rs.read().split('\n')
             for y in range(11):
                 for x in range(15):
@@ -109,7 +127,7 @@ class Bomberman(pygame.sprite.Sprite):
 
         # parameters
         self.bombs = 3
-        self.flame = 3
+        self.flame = 320
 
     def cut_sheet(self, sheet, columns, rows):
         group = []
@@ -176,10 +194,13 @@ class Bomberman(pygame.sprite.Sprite):
                 self.cur_frame = (self.cur_frame + 1) % len(self.group)
             self.counter += 1
 
-        self.image = self.group[self.cur_frame]
-        self.rect.x += self.dx
-        self.rect.y += self.dy
+        if 0 < self.hitbox.x + self.dx < game.width * 80 - self.hitbox.width:
+            self.rect.x += self.dx
+        if 0 < self.hitbox.y + self.dy < game.height * 80 - self.hitbox.height:
+            self.rect.y += self.dy
+
         self.hitbox.x, self.hitbox.y = self.rect.x + 4 * self.mlt, self.rect.y + 16 * self.mlt
+        self.image = self.group[self.cur_frame]
 
         self.collied = False
         for wall in wall_hit:
@@ -251,6 +272,10 @@ class Bomb(pygame.sprite.Sprite):
         if self.time == 0:
             self.bomber.bombs += 1
             bomb_hit[self.pos] = 0
+            Flame(self.rect.x, self.rect.y, self.flame, 'up')
+            Flame(self.rect.x, self.rect.y, self.flame, 'right')
+            Flame(self.rect.x, self.rect.y, self.flame, 'down')
+            Flame(self.rect.x, self.rect.y, self.flame, 'left')
             self.kill()
 
     def cut_sheet(self, sheet, columns, rows):
@@ -271,10 +296,10 @@ class Flame(pygame.sprite.Sprite):
 
         # animation
         self.sheets = {
-            'up': (self.cut_sheet(load_image('Flame_u'), 60, 1), 0, -80),
-            'right': (self.cut_sheet(load_image('Flame_r'), 60, 1), 80, 0),
-            'down': (self.cut_sheet(load_image('Flame_d'), 60, 1), 0, 80),
-            'left': (self.cut_sheet(load_image('Flame_l'), 60, 1), -80, 0),
+            'up': (self.cut_sheet(pygame.transform.scale(load_image('Flame_u.png'), (72, 525)), 1, 5), 0, -40),
+            'right': (self.cut_sheet(pygame.transform.scale(load_image('Flame_r.png'), (525, 72)), 5, 1), 40, 0),
+            'down': (self.cut_sheet(pygame.transform.scale(load_image('Flame_d.png'), (72, 525)), 1, 5), 0, 40),
+            'left': (self.cut_sheet(pygame.transform.scale(load_image('Flame_l.png'), (525, 72)), 5, 1), -40, 0),
         }
         self.group = self.sheets[direct][0]
         self.cur_frame = 0
@@ -282,6 +307,7 @@ class Flame(pygame.sprite.Sprite):
 
         # parameters
         self.length = length
+        self.distance = 0
         self.dx = self.sheets[direct][1]
         self.dy = self.sheets[direct][2]
         self.rect = pygame.Rect(0, 0, 80, 80)
@@ -293,6 +319,26 @@ class Flame(pygame.sprite.Sprite):
         self.rect.x += self.dx
         self.rect.y += self.dy
 
+        if self.length <= abs(self.distance):
+            self.kill()
+
+        for wall in wall_hit:
+            if self.rect.colliderect(wall.rect):
+                self.kill()
+
+        for brick in brick_hit:
+            if self.rect.colliderect(brick.rect):
+                brick.destroy()
+                self.kill()
+
+        for bomb in bomb_hit:
+            if bomb != 0:
+                if self.rect.colliderect(bomb[0].rect):
+                    bomb[0].time = 16
+                    self.kill()
+
+        self.distance += self.dx + self.dy
+
     def cut_sheet(self, sheet, columns, rows):
         group = []
         self.rect = pygame.Rect(0, 0, sheet.get_width() // columns,
@@ -303,7 +349,6 @@ class Flame(pygame.sprite.Sprite):
                 group.append(sheet.subsurface(pygame.Rect(
                     frame_location, self.rect.size)))
         return group
-
 
 
 fps = 60
@@ -335,10 +380,12 @@ while running:
             running = False
 
     # формирование кадра
-    screen.fill('ForestGreen')
+    screen.fill((51, 118, 0))
+    flames.update()
     bomber.update()
     dan.update()
     bombs.update()
+    bricks.update()
 
     # изменение игрового мира
     walls.draw(screen)
@@ -346,6 +393,7 @@ while running:
     bombs.draw(screen)
     bomber.draw(screen)
     dan.draw(screen)
+    flames.draw(screen)
     pygame.display.flip()
 
     # временная задержка
